@@ -2,6 +2,7 @@ package goutils
 
 import (
 	"errors"
+	"fmt"
 )
 
 const (
@@ -25,3 +26,18 @@ var (
 	// ErrInternalError error
 	ErrInternalError = errors.New(ErrCodeInternalError)
 )
+
+// ValidationError error
+type ValidationError struct {
+	ValidationErrors map[string]string
+}
+
+// Error method
+func (v *ValidationError) Error() string {
+	return fmt.Sprintf("%v", v.ValidationErrors)
+}
+
+// NewValidationError func
+func NewValidationError(validationErrors map[string]string) *ValidationError {
+	return &ValidationError{validationErrors}
+}
