@@ -12,20 +12,13 @@ import (
 	"github.com/form3tech-oss/jwt-go"
 )
 
-type cache struct {
-	jwks   *jwks
-	keyMap sync.Map
-}
-
-func newCache(jwks *jwks) *cache {
-	return &cache{jwks, sync.Map{}}
-}
-
 // KeyProvider struct
 type KeyProvider struct {
 	JwksURI         string
 	RefreshInterval time.Duration
-	cache           *cache
+	jwks            *jwks
+	keyCache        *sync.Map
+	sync.RWMutex
 }
 
 // Start method
@@ -61,19 +54,19 @@ func (p *KeyProvider) Load() {
 		return
 	}
 
-	p.cache = newCache(jwks)
+	p.Lock()
+	defer p.Unlock()
+
+	p.keyCache = &sync.Map{}
+	p.jwks = jwks
 }
 
 // GetKey method
 func (p *KeyProvider) GetKey(kid string) (interface{}, error) {
+	p.RLock()
+	defer p.RUnlock()
 
-	cache := p.cache
-
-	if cache == nil {
-		return nil, errors.New("internal error")
-	}
-
-	key, ok := cache.keyMap.Load(kid)
+	key, ok := p.keyCache.Load(kid)
 
 	if ok {
 		return key, nil
@@ -81,7 +74,7 @@ func (p *KeyProvider) GetKey(kid string) (interface{}, error) {
 
 	var cert []byte
 
-	for _, key := range cache.jwks.Keys {
+	for _, key := range p.jwks.Keys {
 		if key.Kid == kid {
 			cert = []byte(fmt.Sprintf("%s\n%s\n%s", certBeg, key.X5c[0], certEnd))
 			break
@@ -97,12 +90,12 @@ func (p *KeyProvider) GetKey(kid string) (interface{}, error) {
 		return nil, errors.New("key not found")
 	}
 
-	cache.keyMap.Store(kid, key)
+	p.keyCache.Store(kid, key)
 
 	return key, nil
 }
 
 // NewKeyProvider func
 func NewKeyProvider(jwksURI string, refreshInterval time.Duration) *KeyProvider {
-	return &KeyProvider{jwksURI, refreshInterval, nil}
+	return &KeyProvider{jwksURI, refreshInterval, nil, nil, sync.RWMutex{}}
 }
