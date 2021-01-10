@@ -6,33 +6,15 @@ import (
 	"github.com/form3tech-oss/jwt-go"
 )
 
-const (
-	certBeg = "-----BEGIN CERTIFICATE-----"
-	certEnd = "-----END CERTIFICATE-----"
-)
-
-type jwks struct {
-	Keys []jwksKey `json:"keys"`
-}
-
-type jwksKey struct {
-	Kty string   `json:"kty"`
-	Use string   `json:"use"`
-	Kid string   `json:"kid"`
-	N   string   `json:"n"`
-	E   string   `json:"e"`
-	X5c []string `json:"x5c"`
-}
-
-// ValidationKeyGetterOptions struct
-type ValidationKeyGetterOptions struct {
+// KeyGetterOptions struct
+type KeyGetterOptions struct {
 	Aud         string
 	Iss         string
-	KeyProvider *KeyProvider
+	KeyProvider KeyProvider
 }
 
-// NewValidationKeyGetter func
-func NewValidationKeyGetter(options *ValidationKeyGetterOptions) func(token *jwt.Token) (interface{}, error) {
+// NewKeyGetter func
+func NewKeyGetter(options *KeyGetterOptions) func(token *jwt.Token) (interface{}, error) {
 
 	if options == nil || options.KeyProvider == nil || options.Aud == "" || options.Iss == "" {
 		panic("invalid options")
@@ -59,7 +41,7 @@ func NewValidationKeyGetter(options *ValidationKeyGetterOptions) func(token *jwt
 			return nil, errors.New("invalid kid")
 		}
 
-		key, err := options.KeyProvider.GetKey(kid.(string))
+		key, err := options.KeyProvider.GetKey(kid)
 		if err != nil {
 			return nil, err
 		}
