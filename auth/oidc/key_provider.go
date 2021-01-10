@@ -45,9 +45,9 @@ type KeyProvider struct {
 }
 
 // NewKeyProvider func
-func NewKeyProvider(ctx context.Context, o KeyProviderOptions) *KeyProvider {
+func NewKeyProvider(ctx context.Context, o KeyProviderOptions) (*KeyProvider, error) {
 	if o.JwksURI == "" {
-		panic("invalid options")
+		return nil, errors.New("invalid options")
 	}
 
 	if o.RefreshInterval == 0 {
@@ -56,9 +56,11 @@ func NewKeyProvider(ctx context.Context, o KeyProviderOptions) *KeyProvider {
 
 	p := &KeyProvider{&o, nil, nil, sync.RWMutex{}}
 
-	p.start(ctx)
+	if err := p.start(ctx); err != nil {
+		return nil, errors.New("provider start failed")
+	}
 
-	return p
+	return p, nil
 }
 
 // GetKey method
@@ -66,9 +68,7 @@ func (p *KeyProvider) GetKey(kid interface{}) (interface{}, error) {
 	p.RLock()
 	defer p.RUnlock()
 
-	key, ok := p.keyCache.Load(kid)
-
-	if ok {
+	if key, ok := p.keyCache.Load(kid); ok {
 		return key, nil
 	}
 
@@ -96,8 +96,11 @@ func (p *KeyProvider) GetKey(kid interface{}) (interface{}, error) {
 }
 
 func (p *KeyProvider) start(ctx context.Context) error {
+	if err := p.load(); err != nil {
+		return err
+	}
+
 	go func() {
-		p.load()
 		for {
 			select {
 			case <-time.After(p.options.RefreshInterval):
@@ -111,21 +114,18 @@ func (p *KeyProvider) start(ctx context.Context) error {
 	return nil
 }
 
-func (p *KeyProvider) load() {
+func (p *KeyProvider) load() error {
 	resp, err := http.Get(p.options.JwksURI)
 	if err != nil {
-		fmt.Printf(err.Error())
-		return
+		return err
 	}
 
 	defer resp.Body.Close()
 
 	var jwks = &jwks{}
 
-	err = json.NewDecoder(resp.Body).Decode(jwks)
-	if err != nil {
-		fmt.Printf(err.Error())
-		return
+	if err = json.NewDecoder(resp.Body).Decode(jwks); err != nil {
+		return err
 	}
 
 	p.Lock()
@@ -133,4 +133,6 @@ func (p *KeyProvider) load() {
 
 	p.keyCache = &sync.Map{}
 	p.jwks = jwks
+
+	return nil
 }
