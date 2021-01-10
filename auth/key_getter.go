@@ -13,11 +13,15 @@ type KeyGetterOptions struct {
 	KeyProvider KeyProvider
 }
 
-// NewKeyGetter func
-func NewKeyGetter(options *KeyGetterOptions) func(token *jwt.Token) (interface{}, error) {
+func (o *KeyGetterOptions) validate() bool {
+	return o != nil && o.KeyProvider != nil && o.Aud != "" && o.Iss != ""
+}
 
-	if options == nil || options.KeyProvider == nil || options.Aud == "" || options.Iss == "" {
-		panic("invalid options")
+// NewKeyGetter func
+func NewKeyGetter(options *KeyGetterOptions) (func(token *jwt.Token) (interface{}, error), error) {
+
+	if !options.validate() {
+		return nil, errors.New("invalid options")
 	}
 
 	return func(token *jwt.Token) (interface{}, error) {
@@ -41,11 +45,11 @@ func NewKeyGetter(options *KeyGetterOptions) func(token *jwt.Token) (interface{}
 			return nil, errors.New("invalid kid")
 		}
 
-		key, err := options.KeyProvider.GetKey(kid)
+		key, err := options.KeyProvider.GetKey(kid.(string))
 		if err != nil {
 			return nil, err
 		}
 
 		return key, nil
-	}
+	}, nil
 }
