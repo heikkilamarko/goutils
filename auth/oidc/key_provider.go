@@ -17,6 +17,10 @@ const (
 	certEnd = "-----END CERTIFICATE-----"
 )
 
+type metadata struct {
+	JwksURI string `json:"jwks_uri"`
+}
+
 type jwks struct {
 	Keys []jwksKey `json:"keys"`
 }
@@ -32,21 +36,21 @@ type jwksKey struct {
 
 // KeyProviderOptions struct
 type KeyProviderOptions struct {
-	JwksURI         string
+	MetadataURI     string
 	RefreshInterval time.Duration
 }
 
 // KeyProvider struct
 type KeyProvider struct {
-	options  *KeyProviderOptions
-	keyCache map[string]interface{}
+	options *KeyProviderOptions
+	keys    map[string]interface{}
 	sync.RWMutex
 }
 
 // NewKeyProvider func
 func NewKeyProvider(ctx context.Context, o KeyProviderOptions) (*KeyProvider, error) {
-	if o.JwksURI == "" {
-		return nil, errors.New("invalid jwks uri")
+	if o.MetadataURI == "" {
+		return nil, errors.New("invalid metadata uri")
 	}
 
 	if o.RefreshInterval == 0 {
@@ -54,13 +58,12 @@ func NewKeyProvider(ctx context.Context, o KeyProviderOptions) (*KeyProvider, er
 	}
 
 	p := &KeyProvider{
-		&o,
-		make(map[string]interface{}),
-		sync.RWMutex{},
+		options: &o,
+		keys:    make(map[string]interface{}),
 	}
 
 	if err := p.start(ctx); err != nil {
-		return nil, errors.New("start: metadata not found")
+		return nil, err
 	}
 
 	return p, nil
@@ -71,7 +74,7 @@ func (p *KeyProvider) GetKey(kid string) (interface{}, error) {
 	p.RLock()
 	defer p.RUnlock()
 
-	if key, ok := p.keyCache[kid]; ok {
+	if key, ok := p.keys[kid]; ok {
 		return key, nil
 	}
 
@@ -79,7 +82,7 @@ func (p *KeyProvider) GetKey(kid string) (interface{}, error) {
 }
 
 func (p *KeyProvider) start(ctx context.Context) error {
-	if err := p.load(); err != nil {
+	if err := p.refresh(); err != nil {
 		return err
 	}
 
@@ -87,7 +90,7 @@ func (p *KeyProvider) start(ctx context.Context) error {
 		for {
 			select {
 			case <-time.After(p.options.RefreshInterval):
-				p.load()
+				p.refresh()
 			case <-ctx.Done():
 				return
 			}
@@ -97,46 +100,86 @@ func (p *KeyProvider) start(ctx context.Context) error {
 	return nil
 }
 
-func (p *KeyProvider) load() error {
-	resp, err := http.Get(p.options.JwksURI)
+func (p *KeyProvider) refresh() error {
+	keys, err := getKeys(p.options.MetadataURI)
 	if err != nil {
 		return err
-	}
-
-	defer resp.Body.Close()
-
-	var jwks jwks
-
-	if err = json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
-		return err
-	}
-
-	var keyCache = make(map[string]interface{})
-
-	for _, key := range jwks.Keys {
-		if k, err := getKey(key.X5c); err == nil {
-			keyCache[key.Kid] = k
-		}
 	}
 
 	p.Lock()
 	defer p.Unlock()
 
-	p.keyCache = keyCache
+	p.keys = keys
 
 	return nil
 }
 
+func getKeys(metadataURI string) (map[string]interface{}, error) {
+	metadata, err := getMetadata(metadataURI)
+	if err != nil {
+		return nil, err
+	}
+
+	jwks, err := getJwks(metadata.JwksURI)
+	if err != nil {
+		return nil, err
+	}
+
+	var keys = make(map[string]interface{})
+
+	for _, jwksKey := range jwks.Keys {
+		if key, err := getKey(jwksKey.X5c); err == nil {
+			keys[jwksKey.Kid] = key
+		}
+	}
+
+	return keys, nil
+}
+
+func getMetadata(url string) (*metadata, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("get metadata from url '%s' failed: %w", url, err)
+	}
+
+	defer resp.Body.Close()
+
+	md := &metadata{}
+
+	if err = json.NewDecoder(resp.Body).Decode(md); err != nil {
+		return nil, fmt.Errorf("parse metadata failed: %w", err)
+	}
+
+	return md, nil
+}
+
+func getJwks(url string) (*jwks, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("get jwks from url '%s' failed: %w", url, err)
+	}
+
+	defer resp.Body.Close()
+
+	jwks := &jwks{}
+
+	if err = json.NewDecoder(resp.Body).Decode(jwks); err != nil {
+		return nil, fmt.Errorf("parse jwks failed: %w", err)
+	}
+
+	return jwks, nil
+}
+
 func getKey(x5c []string) (interface{}, error) {
 	if len(x5c) == 0 {
-		return nil, errors.New("empty x5c")
+		return nil, errors.New("invalid x5c")
 	}
 
 	pem := fmt.Sprintf("%s\n%s\n%s", certBeg, x5c[0], certEnd)
 
 	key, err := jwt.ParseRSAPublicKeyFromPEM([]byte(pem))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse rsa public key from pem failed: %w", err)
 	}
 
 	return key, nil
