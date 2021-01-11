@@ -44,7 +44,7 @@ type KeyProviderOptions struct {
 type KeyProvider struct {
 	options *KeyProviderOptions
 	keys    map[string]interface{}
-	sync.RWMutex
+	m       sync.RWMutex
 }
 
 // NewKeyProvider func
@@ -71,8 +71,8 @@ func NewKeyProvider(ctx context.Context, o KeyProviderOptions) (*KeyProvider, er
 
 // GetKey method
 func (p *KeyProvider) GetKey(kid string) (interface{}, error) {
-	p.RLock()
-	defer p.RUnlock()
+	p.m.RLock()
+	defer p.m.RUnlock()
 
 	if key, ok := p.keys[kid]; ok {
 		return key, nil
@@ -106,8 +106,8 @@ func (p *KeyProvider) refresh() error {
 		return err
 	}
 
-	p.Lock()
-	defer p.Unlock()
+	p.m.Lock()
+	defer p.m.Unlock()
 
 	p.keys = keys
 
