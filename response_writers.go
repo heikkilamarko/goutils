@@ -2,6 +2,7 @@ package goutils
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 )
 
@@ -38,6 +39,16 @@ func WriteNotFound(w http.ResponseWriter, details map[string]string) {
 // WriteInternalError writes 500 response
 func WriteInternalError(w http.ResponseWriter, details map[string]string) {
 	WriteResponse(w, http.StatusInternalServerError, NewInternalErrorResponse(details))
+}
+
+// WriteValidationError writes 400 or 500 response
+func WriteValidationError(w http.ResponseWriter, err error) {
+	var verr *ValidationError
+	if errors.As(err, &verr) {
+		WriteBadRequest(w, verr.ValidationErrors)
+	} else {
+		WriteInternalError(w, nil)
+	}
 }
 
 // WriteResponse func
