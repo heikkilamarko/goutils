@@ -1,4 +1,4 @@
-package oidc
+package bearer
 
 import (
 	"context"
@@ -15,6 +15,11 @@ import (
 const (
 	certBeg = "-----BEGIN CERTIFICATE-----"
 	certEnd = "-----END CERTIFICATE-----"
+)
+
+const (
+	defaultAutomaticRefreshInterval = 24 * time.Hour
+	defaultRefreshInterval          = 30 * time.Second
 )
 
 type metadata struct {
@@ -36,82 +41,91 @@ type jwksKey struct {
 
 // KeyProviderOptions struct
 type KeyProviderOptions struct {
-	MetadataURI     string
-	RefreshInterval time.Duration
+	MetadataURI              string
+	AutomaticRefreshInterval time.Duration
+	RefreshInterval          time.Duration
 }
 
 // KeyProvider struct
 type KeyProvider struct {
-	options *KeyProviderOptions
-	keys    map[string]interface{}
-	m       sync.RWMutex
+	options     *KeyProviderOptions
+	syncAfter   time.Time
+	lastRefresh time.Time
+	m           sync.Mutex
+	keys        map[string]interface{}
 }
 
 // NewKeyProvider func
-func NewKeyProvider(ctx context.Context, o KeyProviderOptions) (*KeyProvider, error) {
-	if o.MetadataURI == "" {
+func NewKeyProvider(ctx context.Context, options KeyProviderOptions) (*KeyProvider, error) {
+	if options.MetadataURI == "" {
 		return nil, errors.New("invalid metadata uri")
 	}
 
-	if o.RefreshInterval == 0 {
-		o.RefreshInterval = time.Hour
+	if options.AutomaticRefreshInterval == 0 {
+		options.AutomaticRefreshInterval = defaultAutomaticRefreshInterval
 	}
 
-	p := &KeyProvider{
-		options: &o,
-		keys:    make(map[string]interface{}),
+	if options.RefreshInterval == 0 {
+		options.RefreshInterval = defaultRefreshInterval
 	}
 
-	if err := p.start(ctx); err != nil {
-		return nil, err
-	}
-
-	return p, nil
+	return &KeyProvider{options: &options}, nil
 }
 
 // GetKey method
 func (p *KeyProvider) GetKey(kid string) (interface{}, error) {
-	p.m.RLock()
-	defer p.m.RUnlock()
+	now := time.Now()
 
-	if key, ok := p.keys[kid]; ok {
-		return key, nil
-	}
-
-	return nil, errors.New("key not found")
-}
-
-func (p *KeyProvider) start(ctx context.Context) error {
-	if err := p.refresh(); err != nil {
-		return err
-	}
-
-	go func() {
-		for {
-			select {
-			case <-time.After(p.options.RefreshInterval):
-				p.refresh()
-			case <-ctx.Done():
-				return
-			}
+	if p.keys != nil && p.syncAfter.After(now) {
+		if key, ok := p.keys[kid]; ok {
+			return key, nil
 		}
-	}()
 
-	return nil
-}
+		p.syncAfter = now.Add(p.getSmallerInterval())
 
-func (p *KeyProvider) refresh() error {
-	keys, err := getKeys(p.options.MetadataURI)
-	if err != nil {
-		return err
+		return nil, errors.New("unable to obtain key")
 	}
 
 	p.m.Lock()
 	defer p.m.Unlock()
 
-	p.keys = keys
+	if p.syncAfter.Before(now) || p.syncAfter.Equal(now) {
+		keys, err := getKeys(p.options.MetadataURI)
+		if err != nil {
+			p.syncAfter = now.Add(p.getSmallerInterval())
 
-	return nil
+			if p.keys == nil {
+				return nil, errors.New("unable to obtain keys")
+			}
+		} else {
+			p.keys = keys
+			p.lastRefresh = now
+			p.syncAfter = now.Add(p.options.AutomaticRefreshInterval)
+		}
+	}
+
+	if p.keys != nil {
+		if key, ok := p.keys[kid]; ok {
+			return key, nil
+		}
+	}
+
+	return nil, errors.New("unable to obtain key")
+}
+
+// RequestRefresh method
+func (p *KeyProvider) RequestRefresh() {
+	now := time.Now()
+	if now.After(p.lastRefresh.Add(p.options.RefreshInterval)) {
+		p.syncAfter = now
+	}
+}
+
+func (p *KeyProvider) getSmallerInterval() time.Duration {
+	if p.options.AutomaticRefreshInterval < p.options.RefreshInterval {
+		return p.options.AutomaticRefreshInterval
+	}
+	return p.options.RefreshInterval
 }
 
 func getKeys(metadataURI string) (map[string]interface{}, error) {
