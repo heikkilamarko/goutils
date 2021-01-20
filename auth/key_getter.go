@@ -18,7 +18,7 @@ func (o *KeyGetterOptions) validate() bool {
 }
 
 // NewKeyGetter func
-func NewKeyGetter(options *KeyGetterOptions) (func(token *jwt.Token) (interface{}, error), error) {
+func NewKeyGetter(options *KeyGetterOptions) (func(*jwt.Token) (interface{}, error), error) {
 
 	if !options.validate() {
 		return nil, errors.New("invalid options")
