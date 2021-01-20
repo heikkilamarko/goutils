@@ -2,199 +2,114 @@ package bearer
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"net/http"
 	"sync"
 	"time"
 
-	"github.com/form3tech-oss/jwt-go"
+	"github.com/rs/zerolog"
 )
 
 const (
-	certBeg = "-----BEGIN CERTIFICATE-----"
-	certEnd = "-----END CERTIFICATE-----"
+	defaultRefreshInterval = 12 * time.Hour
+	minimumRefreshInterval = time.Minute
 )
-
-const (
-	defaultAutomaticRefreshInterval = 24 * time.Hour
-	defaultRefreshInterval          = 30 * time.Second
-)
-
-type metadata struct {
-	JwksURI string `json:"jwks_uri"`
-}
-
-type jwks struct {
-	Keys []jwksKey `json:"keys"`
-}
-
-type jwksKey struct {
-	Kty string   `json:"kty"`
-	Use string   `json:"use"`
-	Kid string   `json:"kid"`
-	N   string   `json:"n"`
-	E   string   `json:"e"`
-	X5c []string `json:"x5c"`
-}
 
 // KeyProviderOptions struct
 type KeyProviderOptions struct {
-	MetadataURI              string
-	AutomaticRefreshInterval time.Duration
-	RefreshInterval          time.Duration
+	MetadataURI     string
+	RefreshInterval time.Duration
+	Logger          *zerolog.Logger
 }
 
 // KeyProvider struct
 type KeyProvider struct {
-	options     *KeyProviderOptions
-	syncAfter   time.Time
-	lastRefresh time.Time
-	m           sync.Mutex
-	keys        map[string]interface{}
+	options *KeyProviderOptions
+	keys    map[string]interface{}
+	mu      sync.RWMutex
 }
 
 // NewKeyProvider func
 func NewKeyProvider(ctx context.Context, options KeyProviderOptions) (*KeyProvider, error) {
 	if options.MetadataURI == "" {
-		return nil, errors.New("invalid metadata uri")
+		return nil, errors.New("missing metadata uri")
 	}
 
-	if options.AutomaticRefreshInterval == 0 {
-		options.AutomaticRefreshInterval = defaultAutomaticRefreshInterval
+	if options.RefreshInterval < minimumRefreshInterval {
+		if options.RefreshInterval == 0 {
+			options.RefreshInterval = defaultRefreshInterval
+		}
+		options.RefreshInterval = minimumRefreshInterval
 	}
 
-	if options.RefreshInterval == 0 {
-		options.RefreshInterval = defaultRefreshInterval
+	p := &KeyProvider{
+		options: &options,
+		keys:    make(map[string]interface{}),
 	}
 
-	return &KeyProvider{options: &options}, nil
+	if err := p.start(ctx); err != nil {
+		return nil, err
+	}
+
+	return p, nil
 }
 
 // GetKey method
 func (p *KeyProvider) GetKey(kid string) (interface{}, error) {
-	now := time.Now()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 
-	if p.keys != nil && p.syncAfter.After(now) {
-		if key, ok := p.keys[kid]; ok {
-			return key, nil
-		}
-
-		p.syncAfter = now.Add(p.getSmallerInterval())
-
-		return nil, errors.New("unable to obtain key")
+	if key, ok := p.keys[kid]; ok {
+		return key, nil
 	}
 
-	p.m.Lock()
-	defer p.m.Unlock()
+	return nil, errors.New("key not found")
+}
 
-	if p.syncAfter.Before(now) || p.syncAfter.Equal(now) {
-		keys, err := getKeys(p.options.MetadataURI)
-		if err != nil {
-			p.syncAfter = now.Add(p.getSmallerInterval())
+// Refresh method
+func (p *KeyProvider) Refresh() error {
+	p.logInfo("refreshing keys...")
 
-			if p.keys == nil {
-				return nil, errors.New("unable to obtain keys")
+	keys, err := getKeys(p.options.MetadataURI)
+	if err != nil {
+		p.logError(err)
+		return err
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.keys = keys
+
+	return nil
+}
+
+func (p *KeyProvider) start(ctx context.Context) error {
+	if err := p.Refresh(); err != nil {
+		return err
+	}
+
+	go func() {
+		for {
+			select {
+			case <-time.After(p.options.RefreshInterval):
+				p.Refresh()
+			case <-ctx.Done():
+				return
 			}
-		} else {
-			p.keys = keys
-			p.lastRefresh = now
-			p.syncAfter = now.Add(p.options.AutomaticRefreshInterval)
 		}
-	}
+	}()
 
-	if p.keys != nil {
-		if key, ok := p.keys[kid]; ok {
-			return key, nil
-		}
-	}
-
-	return nil, errors.New("unable to obtain key")
+	return nil
 }
 
-// RequestRefresh method
-func (p *KeyProvider) RequestRefresh() {
-	now := time.Now()
-	if now.After(p.lastRefresh.Add(p.options.RefreshInterval)) {
-		p.syncAfter = now
+func (p *KeyProvider) logInfo(msg string) {
+	if p.options.Logger != nil {
+		p.options.Logger.Info().Msg(msg)
 	}
 }
 
-func (p *KeyProvider) getSmallerInterval() time.Duration {
-	if p.options.AutomaticRefreshInterval < p.options.RefreshInterval {
-		return p.options.AutomaticRefreshInterval
+func (p *KeyProvider) logError(err error) {
+	if p.options.Logger != nil {
+		p.options.Logger.Err(err).Send()
 	}
-	return p.options.RefreshInterval
-}
-
-func getKeys(metadataURI string) (map[string]interface{}, error) {
-	metadata, err := getMetadata(metadataURI)
-	if err != nil {
-		return nil, err
-	}
-
-	jwks, err := getJwks(metadata.JwksURI)
-	if err != nil {
-		return nil, err
-	}
-
-	var keys = make(map[string]interface{})
-
-	for _, jwksKey := range jwks.Keys {
-		if key, err := getKey(jwksKey.X5c); err == nil {
-			keys[jwksKey.Kid] = key
-		}
-	}
-
-	return keys, nil
-}
-
-func getMetadata(url string) (*metadata, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("get metadata from url '%s' failed: %w", url, err)
-	}
-
-	defer resp.Body.Close()
-
-	md := &metadata{}
-
-	if err = json.NewDecoder(resp.Body).Decode(md); err != nil {
-		return nil, fmt.Errorf("parse metadata failed: %w", err)
-	}
-
-	return md, nil
-}
-
-func getJwks(url string) (*jwks, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("get jwks from url '%s' failed: %w", url, err)
-	}
-
-	defer resp.Body.Close()
-
-	jwks := &jwks{}
-
-	if err = json.NewDecoder(resp.Body).Decode(jwks); err != nil {
-		return nil, fmt.Errorf("parse jwks failed: %w", err)
-	}
-
-	return jwks, nil
-}
-
-func getKey(x5c []string) (interface{}, error) {
-	if len(x5c) == 0 {
-		return nil, errors.New("invalid x5c")
-	}
-
-	pem := fmt.Sprintf("%s\n%s\n%s", certBeg, x5c[0], certEnd)
-
-	key, err := jwt.ParseRSAPublicKeyFromPEM([]byte(pem))
-	if err != nil {
-		return nil, fmt.Errorf("parse rsa public key from pem failed: %w", err)
-	}
-
-	return key, nil
 }
