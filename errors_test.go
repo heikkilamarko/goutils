@@ -5,25 +5,20 @@ import (
 )
 
 func TestNewValidationError(t *testing.T) {
-
-	verr := NewValidationError(map[string]string{})
-
-	var _ error = verr
+	var _ error = NewValidationError(map[string]string{})
 }
 
 func TestNewValidationErrorEmpty(t *testing.T) {
-
 	verr := NewValidationError(map[string]string{})
 
 	l := len(verr.ValidationErrors)
 
 	if l != 0 {
-		t.Errorf("len(ve.ValidationErrors) = %d; want 0", l)
+		t.Errorf("len(ValidationErrors) = %d; want 0", l)
 	}
 }
 
 func TestNewValidationErrorNonEmpty(t *testing.T) {
-
 	verr := NewValidationError(map[string]string{
 		"id": "invalid id",
 	})
@@ -31,6 +26,6 @@ func TestNewValidationErrorNonEmpty(t *testing.T) {
 	l := len(verr.ValidationErrors)
 
 	if l != 1 {
-		t.Errorf("len(ve.ValidationErrors) = %d; want 1", l)
+		t.Errorf("len(ValidationErrors) = %d; want 1", l)
 	}
 }
