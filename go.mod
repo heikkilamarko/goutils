@@ -4,5 +4,5 @@ go 1.16
 
 require (
 	github.com/form3tech-oss/jwt-go v3.2.2+incompatible
-	github.com/rs/zerolog v1.20.0
+	github.com/rs/zerolog v1.21.0
 )
