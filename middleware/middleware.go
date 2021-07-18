@@ -2,9 +2,12 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/hashicorp/cap/jwt"
 	"github.com/heikkilamarko/goutils"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/hlog"
@@ -71,4 +74,68 @@ func Timeout(duration time.Duration) func(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// JWTConfig struct
+type JWTConfig struct {
+	Issuer   string
+	Iss      string
+	Aud      []string
+	TokenKey interface{}
+}
+
+// JWT middleware
+func JWT(ctx context.Context, config *JWTConfig) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+			logger := hlog.FromRequest(r)
+
+			token, err := extractToken(r)
+			if err != nil {
+				logger.Error().Err(err).Send()
+				goutils.WriteUnauthorized(w, nil)
+				return
+			}
+
+			keySet, err := jwt.NewOIDCDiscoveryKeySet(ctx, config.Issuer, "")
+			if err != nil {
+				logger.Error().Err(err).Send()
+				goutils.WriteUnauthorized(w, nil)
+				return
+			}
+
+			validator, err := jwt.NewValidator(keySet)
+			if err != nil {
+				logger.Error().Err(err).Send()
+				goutils.WriteUnauthorized(w, nil)
+				return
+			}
+
+			expected := jwt.Expected{
+				Issuer:    config.Iss,
+				Audiences: config.Aud,
+			}
+
+			claims, err := validator.Validate(ctx, token, expected)
+			if err != nil {
+				logger.Error().Err(err).Send()
+				goutils.WriteUnauthorized(w, nil)
+				return
+			}
+
+			r = r.WithContext(context.WithValue(r.Context(), config.TokenKey, claims))
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func extractToken(r *http.Request) (string, error) {
+	auth := r.Header.Get("Authorization")
+	parts := strings.Split(auth, " ")
+	if len(parts) == 2 {
+		return parts[1], nil
+	}
+	return "", errors.New("token not found")
 }

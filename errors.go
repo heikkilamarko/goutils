@@ -1,8 +1,8 @@
 package goutils
 
 import (
+	"encoding/json"
 	"errors"
-	"fmt"
 )
 
 const (
@@ -29,15 +29,19 @@ var (
 
 // ValidationError error
 type ValidationError struct {
-	ValidationErrors map[string]string
+	ErrorMap map[string]string
+}
+
+// NewValidationError func
+func NewValidationError(errorMap map[string]string) *ValidationError {
+	return &ValidationError{errorMap}
 }
 
 // Error method
 func (v *ValidationError) Error() string {
-	return fmt.Sprintf("%v", v.ValidationErrors)
-}
-
-// NewValidationError func
-func NewValidationError(validationErrors map[string]string) *ValidationError {
-	return &ValidationError{validationErrors}
+	message, err := json.Marshal(v.ErrorMap)
+	if err != nil {
+		return ""
+	}
+	return string(message)
 }

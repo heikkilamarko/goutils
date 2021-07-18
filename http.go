@@ -12,6 +12,11 @@ type DataResponse struct {
 	Data interface{} `json:"data"`
 }
 
+// NewDataResponse func
+func NewDataResponse(data, meta interface{}) *DataResponse {
+	return &DataResponse{meta, data}
+}
+
 // ErrorResponse struct
 type ErrorResponse struct {
 	Error *ErrorResponseError `json:"error"`
@@ -21,11 +26,6 @@ type ErrorResponse struct {
 type ErrorResponseError struct {
 	Code    string            `json:"code"`
 	Details map[string]string `json:"details,omitempty"`
-}
-
-// NewDataResponse func
-func NewDataResponse(data, meta interface{}) *DataResponse {
-	return &DataResponse{meta, data}
 }
 
 // NewErrorResponse func
@@ -92,9 +92,9 @@ func WriteInternalError(w http.ResponseWriter, details map[string]string) {
 
 // WriteValidationError writes 400 or 500 response
 func WriteValidationError(w http.ResponseWriter, err error) {
-	var verr *ValidationError
-	if errors.As(err, &verr) {
-		WriteBadRequest(w, verr.ValidationErrors)
+	var vErr *ValidationError
+	if errors.As(err, &vErr) {
+		WriteBadRequest(w, vErr.ErrorMap)
 	} else {
 		WriteInternalError(w, nil)
 	}
