@@ -86,6 +86,22 @@ type JWTConfig struct {
 
 // JWT middleware
 func JWT(ctx context.Context, config *JWTConfig) func(next http.Handler) http.Handler {
+
+	keySet, err := jwt.NewOIDCDiscoveryKeySet(ctx, config.Issuer, "")
+	if err != nil {
+		panic(err)
+	}
+
+	validator, err := jwt.NewValidator(keySet)
+	if err != nil {
+		panic(err)
+	}
+
+	expected := jwt.Expected{
+		Issuer:    config.Iss,
+		Audiences: config.Aud,
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
@@ -98,26 +114,7 @@ func JWT(ctx context.Context, config *JWTConfig) func(next http.Handler) http.Ha
 				return
 			}
 
-			keySet, err := jwt.NewOIDCDiscoveryKeySet(ctx, config.Issuer, "")
-			if err != nil {
-				logger.Error().Err(err).Send()
-				goutils.WriteUnauthorized(w, nil)
-				return
-			}
-
-			validator, err := jwt.NewValidator(keySet)
-			if err != nil {
-				logger.Error().Err(err).Send()
-				goutils.WriteUnauthorized(w, nil)
-				return
-			}
-
-			expected := jwt.Expected{
-				Issuer:    config.Iss,
-				Audiences: config.Aud,
-			}
-
-			claims, err := validator.Validate(ctx, token, expected)
+			claims, err := validator.Validate(r.Context(), token, expected)
 			if err != nil {
 				logger.Error().Err(err).Send()
 				goutils.WriteUnauthorized(w, nil)
