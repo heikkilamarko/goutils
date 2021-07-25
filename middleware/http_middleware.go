@@ -13,11 +13,6 @@ import (
 	"github.com/rs/zerolog/hlog"
 )
 
-// NotFoundHandler func
-func NotFoundHandler(w http.ResponseWriter, r *http.Request) {
-	goutils.WriteNotFound(w, nil)
-}
-
 // Logger middleware
 func Logger(logger *zerolog.Logger) func(next http.Handler) http.Handler {
 	return hlog.NewHandler(*logger)

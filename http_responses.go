@@ -6,6 +6,13 @@ import (
 	"net/http"
 )
 
+var (
+	errCodeBadRequest    = http.StatusText(http.StatusBadRequest)
+	errCodeUnauthorized  = http.StatusText(http.StatusUnauthorized)
+	errCodeNotFound      = http.StatusText(http.StatusNotFound)
+	errCodeInternalError = http.StatusText(http.StatusInternalServerError)
+)
+
 // DataResponse struct
 type DataResponse struct {
 	Data interface{} `json:"data"`
@@ -50,29 +57,29 @@ func WriteNoContent(w http.ResponseWriter) {
 
 // WriteBadRequest writes 400 response
 func WriteBadRequest(w http.ResponseWriter, details interface{}) {
-	WriteResponse(w, http.StatusBadRequest, NewErrorResponse(ErrCodeBadRequest, details))
+	WriteResponse(w, http.StatusBadRequest, NewErrorResponse(errCodeBadRequest, details))
 }
 
 // WriteUnauthorized writes 401 response
 func WriteUnauthorized(w http.ResponseWriter, details interface{}) {
-	WriteResponse(w, http.StatusUnauthorized, NewErrorResponse(ErrCodeUnauthorized, details))
+	WriteResponse(w, http.StatusUnauthorized, NewErrorResponse(errCodeUnauthorized, details))
 }
 
 // WriteNotFound writes 404 response
 func WriteNotFound(w http.ResponseWriter, details interface{}) {
-	WriteResponse(w, http.StatusNotFound, NewErrorResponse(ErrCodeNotFound, details))
+	WriteResponse(w, http.StatusNotFound, NewErrorResponse(errCodeNotFound, details))
 }
 
 // WriteInternalError writes 500 response
 func WriteInternalError(w http.ResponseWriter, details interface{}) {
-	WriteResponse(w, http.StatusInternalServerError, NewErrorResponse(ErrCodeInternalError, details))
+	WriteResponse(w, http.StatusInternalServerError, NewErrorResponse(errCodeInternalError, details))
 }
 
 // WriteValidationError writes 400 or 500 response
 func WriteValidationError(w http.ResponseWriter, err error) {
-	var vErr *ValidationError
-	if errors.As(err, &vErr) {
-		WriteBadRequest(w, vErr.ErrorMap)
+	var verr *ValidationError
+	if errors.As(err, &verr) {
+		WriteBadRequest(w, verr.ErrorMap)
 	} else {
 		WriteInternalError(w, nil)
 	}
