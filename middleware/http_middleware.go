@@ -81,7 +81,6 @@ type JWTConfig struct {
 
 // JWT middleware
 func JWT(ctx context.Context, config *JWTConfig) func(next http.Handler) http.Handler {
-
 	keySet, err := jwt.NewOIDCDiscoveryKeySet(ctx, config.Issuer, "")
 	if err != nil {
 		panic(err)
