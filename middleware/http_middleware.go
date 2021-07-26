@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/hashicorp/cap/jwt"
@@ -98,19 +97,16 @@ func JWT(ctx context.Context, config *JWTConfig) func(next http.Handler) http.Ha
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
-			logger := hlog.FromRequest(r)
-
-			token, err := extractToken(r)
-			if err != nil {
-				logger.Error().Err(err).Send()
+			token := goutils.TokenFromHeader(r)
+			if token == "" {
+				hlog.FromRequest(r).Error().Err(errors.New("token is empty")).Send()
 				goutils.WriteUnauthorized(w, nil)
 				return
 			}
 
 			claims, err := validator.Validate(r.Context(), token, expected)
 			if err != nil {
-				logger.Error().Err(err).Send()
+				hlog.FromRequest(r).Error().Err(err).Send()
 				goutils.WriteUnauthorized(w, nil)
 				return
 			}
@@ -120,13 +116,4 @@ func JWT(ctx context.Context, config *JWTConfig) func(next http.Handler) http.Ha
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-func extractToken(r *http.Request) (string, error) {
-	auth := r.Header.Get("Authorization")
-	parts := strings.Split(auth, " ")
-	if len(parts) == 2 {
-		return parts[1], nil
-	}
-	return "", errors.New("token not found")
 }
