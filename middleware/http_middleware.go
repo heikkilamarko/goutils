@@ -12,12 +12,10 @@ import (
 	"github.com/rs/zerolog/hlog"
 )
 
-// Logger middleware
 func Logger(logger *zerolog.Logger) func(next http.Handler) http.Handler {
 	return hlog.NewHandler(*logger)
 }
 
-// RequestLogger middleware
 func RequestLogger() func(next http.Handler) http.Handler {
 	return hlog.AccessHandler(func(r *http.Request, status, size int, duration time.Duration) {
 		hlog.FromRequest(r).Info().
@@ -30,7 +28,6 @@ func RequestLogger() func(next http.Handler) http.Handler {
 	})
 }
 
-// ErrorRecovery middleware
 func ErrorRecovery() func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +42,6 @@ func ErrorRecovery() func(next http.Handler) http.Handler {
 	}
 }
 
-// APIKey middleware
 func APIKey(apiKey, headerKey string) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +54,6 @@ func APIKey(apiKey, headerKey string) func(next http.Handler) http.Handler {
 	}
 }
 
-// Timeout middleware
 func Timeout(duration time.Duration) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +65,6 @@ func Timeout(duration time.Duration) func(next http.Handler) http.Handler {
 	}
 }
 
-// JWTConfig struct
 type JWTConfig struct {
 	Issuer   string
 	Iss      string
@@ -78,7 +72,6 @@ type JWTConfig struct {
 	TokenKey interface{}
 }
 
-// JWT middleware
 func JWT(ctx context.Context, config *JWTConfig) func(next http.Handler) http.Handler {
 	keySet, err := jwt.NewOIDCDiscoveryKeySet(ctx, config.Issuer, "")
 	if err != nil {
