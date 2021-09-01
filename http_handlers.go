@@ -12,12 +12,13 @@ func NotFoundHandler() http.Handler {
 }
 
 type SPAHandler struct {
-	fsys       fs.FS
-	indexHTML  []byte
-	fileServer http.Handler
+	fsys            fs.FS
+	indexHTML       []byte
+	fileServer      http.Handler
+	prepareResponse func(http.ResponseWriter, *http.Request, bool)
 }
 
-func NewSPAHandler(fsys fs.FS, dirPath string, indexPath string) (*SPAHandler, error) {
+func NewSPAHandler(fsys fs.FS, dirPath string, indexPath string, prepareResponse func(http.ResponseWriter, *http.Request, bool)) (*SPAHandler, error) {
 	if dirPath != "" {
 		var err error
 		if fsys, err = fs.Sub(fsys, dirPath); err != nil {
@@ -30,18 +31,25 @@ func NewSPAHandler(fsys fs.FS, dirPath string, indexPath string) (*SPAHandler, e
 		return nil, err
 	}
 
+	if prepareResponse == nil {
+		prepareResponse = func(http.ResponseWriter, *http.Request, bool) {}
+	}
+
 	return &SPAHandler{
-		fsys:       fsys,
-		indexHTML:  indexHTML,
-		fileServer: http.FileServer(http.FS(fsys)),
+		fsys:            fsys,
+		indexHTML:       indexHTML,
+		fileServer:      http.FileServer(http.FS(fsys)),
+		prepareResponse: prepareResponse,
 	}, nil
 }
 
 func (h *SPAHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if file, err := fs.Stat(h.fsys, r.URL.Path); err != nil || file.IsDir() {
+		h.prepareResponse(w, r, true)
 		w.WriteHeader(http.StatusOK)
 		w.Write(h.indexHTML)
 		return
 	}
+	h.prepareResponse(w, r, false)
 	h.fileServer.ServeHTTP(w, r)
 }
