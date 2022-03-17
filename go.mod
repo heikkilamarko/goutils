@@ -1,6 +1,6 @@
 module github.com/heikkilamarko/goutils
 
-go 1.17
+go 1.18
 
 require (
 	github.com/hashicorp/cap v0.1.1
