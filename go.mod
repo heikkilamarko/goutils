@@ -1,10 +1,10 @@
 module github.com/heikkilamarko/goutils
 
-go 1.19
+go 1.20
 
 require (
 	github.com/hashicorp/cap v0.2.0
-	github.com/rs/zerolog v1.28.0
+	github.com/rs/zerolog v1.29.0
 )
 
 require (
