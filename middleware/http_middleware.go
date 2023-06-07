@@ -2,38 +2,20 @@ package middleware
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"time"
 
 	"github.com/hashicorp/cap/jwt"
 	"github.com/heikkilamarko/goutils"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/hlog"
+	"golang.org/x/exp/slog"
 )
 
-func Logger(logger *zerolog.Logger) func(next http.Handler) http.Handler {
-	return hlog.NewHandler(*logger)
-}
-
-func RequestLogger() func(next http.Handler) http.Handler {
-	return hlog.AccessHandler(func(r *http.Request, status, size int, duration time.Duration) {
-		hlog.FromRequest(r).Info().
-			Str("method", r.Method).
-			Stringer("url", r.URL).
-			Int("status", status).
-			Int("size", size).
-			Dur("duration", duration).
-			Send()
-	})
-}
-
-func ErrorRecovery() func(next http.Handler) http.Handler {
+func ErrorRecovery(logger *slog.Logger) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if err := recover(); err != nil {
-					hlog.FromRequest(r).Error().Msgf("%s", err)
+					logger.Error("error recovery", "panic", err)
 					goutils.WriteInternalError(w, nil)
 				}
 			}()
@@ -69,7 +51,8 @@ type JWTConfig struct {
 	Issuer   string
 	Iss      string
 	Aud      []string
-	TokenKey interface{}
+	TokenKey any
+	Logger   *slog.Logger
 }
 
 func JWT(ctx context.Context, config *JWTConfig) func(next http.Handler) http.Handler {
@@ -92,14 +75,14 @@ func JWT(ctx context.Context, config *JWTConfig) func(next http.Handler) http.Ha
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := goutils.TokenFromHeader(r)
 			if token == "" {
-				hlog.FromRequest(r).Error().Err(errors.New("token is empty")).Send()
+				slog.Error("token is empty")
 				goutils.WriteUnauthorized(w, nil)
 				return
 			}
 
 			claims, err := validator.Validate(r.Context(), token, expected)
 			if err != nil {
-				hlog.FromRequest(r).Error().Err(err).Send()
+				slog.Error(err.Error())
 				goutils.WriteUnauthorized(w, nil)
 				return
 			}
