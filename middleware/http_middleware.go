@@ -2,12 +2,12 @@ package middleware
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/hashicorp/cap/jwt"
 	"github.com/heikkilamarko/goutils"
-	"golang.org/x/exp/slog"
 )
 
 func ErrorRecovery(logger *slog.Logger) func(next http.Handler) http.Handler {
