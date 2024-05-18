@@ -2,10 +2,7 @@ module github.com/heikkilamarko/goutils
 
 go 1.22.3
 
-require (
-	github.com/hashicorp/cap v0.6.0
-	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842
-)
+require github.com/hashicorp/cap v0.6.0
 
 require (
 	github.com/coreos/go-oidc/v3 v3.10.0 // indirect
